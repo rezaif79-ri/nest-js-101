@@ -8,7 +8,6 @@ import {
   Post,
   Query,
   Redirect,
-  Req,
   UseInterceptors,
 } from '@nestjs/common';
 import { TransformInterceptor } from 'src/common/interceptors/transform.interceptor';
@@ -19,16 +18,13 @@ import { FindUsersQueryDto } from './dto/find-users-query.dto';
 export class UsersController {
   @Get()
   @UseInterceptors(TransformInterceptor)
-  async findAll(
-    @Req() request: Request,
-    @Query() query: FindUsersQueryDto,
-  ): Promise<any[]> {
-    const names = (query.name || '')
-      .split(',')
-      .map((n) => n.trim())
-      .filter(Boolean);
+  async findAll(@Query() query: FindUsersQueryDto): Promise<any[]> {
+    const response = query.names?.map((name) => ({
+      name,
+      age: query.age,
+    })) ?? [];
 
-    return await Promise.resolve(names.map((name) => ({ name })));
+    return response;
   }
 
   @Get(':id')
