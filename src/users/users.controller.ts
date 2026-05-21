@@ -9,22 +9,35 @@ import {
   Query,
   Redirect,
   UseInterceptors,
+  Res,
+  HttpStatus,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { TransformInterceptor } from 'src/common/interceptors/transform.interceptor';
 import { CreateUserRequest, CreateUserResponse } from './dto/create-user.dto';
 import { FindUsersQueryDto } from './dto/find-users-query.dto';
+import { UsersService } from './users.service';
 
 @Controller('users')
 export class UsersController {
+  constructor(private readonly usersService: UsersService) {}
+
   @Get()
   @UseInterceptors(TransformInterceptor)
-  async findAll(@Query() query: FindUsersQueryDto): Promise<any[]> {
-    const response = query.names?.map((name) => ({
-      name,
-      age: query.age,
-    })) ?? [];
+  findAll(@Query() query: FindUsersQueryDto): any[] {
+    const users = this.usersService.findAll();
 
-    return response;
+    if (!query.names?.length) {
+      return users;
+    }
+
+    return users.filter((user) => query.names!.includes(user.name));
+  }
+
+  @Get('info')
+  getInfo(@Res({ passthrough: true }) res: Response) {
+    res.status(HttpStatus.OK);
+    return [];
   }
 
   @Get(':id')
@@ -48,6 +61,12 @@ export class UsersController {
   @Header('Cache-Control', 'no-store')
   @UseInterceptors(TransformInterceptor)
   create(@Body() createUserRequest: CreateUserRequest): CreateUserResponse {
+    this.usersService.create({
+      name: createUserRequest.name,
+      age: createUserRequest.age!,
+      address: createUserRequest.address,
+    });
+
     return {
       message: `User ${createUserRequest.name} created successfully`,
     };
