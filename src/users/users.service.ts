@@ -9,7 +9,7 @@ export class UsersService {
     this.users.push({
       name: user.name,
       age: user.age,
-      address: user.address,
+      address: user.address || undefined,
     });
   }
 

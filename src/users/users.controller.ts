@@ -11,6 +11,7 @@ import {
   UseInterceptors,
   Res,
   HttpStatus,
+  Version,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { TransformInterceptor } from 'src/common/interceptors/transform.interceptor';
@@ -18,7 +19,10 @@ import { CreateUserRequest, CreateUserResponse } from './dto/create-user.dto';
 import { FindUsersQueryDto } from './dto/find-users-query.dto';
 import { UsersService } from './users.service';
 
-@Controller('users')
+@Controller({
+  path: "users", 
+  version: "1"
+})
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
@@ -63,7 +67,7 @@ export class UsersController {
   create(@Body() createUserRequest: CreateUserRequest): CreateUserResponse {
     this.usersService.create({
       name: createUserRequest.name,
-      age: createUserRequest.age!,
+      age: createUserRequest.age,
       address: createUserRequest.address,
     });
 
