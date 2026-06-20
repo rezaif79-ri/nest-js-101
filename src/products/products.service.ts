@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CatalogCacheService } from '../cache/catalog-cache.service';
+import { generateUniqueSlug, slugify } from '../common/slugify';
 import { StorageService } from '../storage/storage.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
@@ -117,24 +118,14 @@ export class ProductsService {
   }
 
   /**
-   * Builds a URL-safe slug from the title and guarantees uniqueness by
-   * appending a short random suffix on collision. Falls back to a generated
-   * base when the title slugifies to empty (e.g. all-symbol titles).
+   * Builds a URL-safe slug from the title, unique across the catalog. Falls
+   * back to a generated base when the title slugifies to empty (e.g. all-symbol
+   * titles).
    */
-  private async generateUniqueSlug(title: string): Promise<string> {
-    const base =
-      title
-        .toLowerCase()
-        .normalize('NFKD')
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 80) || 'product';
-
-    let candidate = base;
-    while (await this.productRepository.exists({ where: { slug: candidate } })) {
-      candidate = `${base}-${Math.random().toString(36).slice(2, 7)}`;
-    }
-    return candidate;
+  private generateUniqueSlug(title: string): Promise<string> {
+    return generateUniqueSlug(slugify(title, 'product'), (candidate) =>
+      this.productRepository.exists({ where: { slug: candidate } }),
+    );
   }
 
   /**
