@@ -7,19 +7,12 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CatalogCacheService } from '../cache/catalog-cache.service';
+import { EXTENSION_BY_TYPE } from '../common/upload';
 import { StorageService } from '../storage/storage.service';
 import { ConfirmImageDto } from './dto/confirm-image.dto';
 import { PresignImageDto } from './dto/presign-image.dto';
 import { Product } from './entities/product.entity';
 import { ProductImage } from './entities/product-image.entity';
-
-/** Maps an accepted MIME type to the file extension used in the object key. */
-const EXTENSION_BY_TYPE: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'image/gif': 'gif',
-};
 
 /** A product image enriched with its resolved public URL for API responses. */
 export interface ProductImageView extends ProductImage {

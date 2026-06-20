@@ -15,7 +15,9 @@ import { SellerGuard } from './guards/seller.guard';
     // forwardRef breaks the Auth <-> Users cycle (UsersModule imports
     // AuthModule for its guards).
     forwardRef(() => UsersModule),
-    CustomersModule,
+    // forwardRef breaks the Auth <-> Customers cycle (CustomersModule imports
+    // AuthModule for its profile-route guards).
+    forwardRef(() => CustomersModule),
     // forwardRef breaks the Auth <-> Sellers cycle: AuthService reads seller
     // profiles, while the seller-activation flow refreshes its token here.
     forwardRef(() => SellersModule),
