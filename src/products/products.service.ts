@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { CatalogCacheService } from '../cache/catalog-cache.service';
 import { StorageService } from '../storage/storage.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
@@ -30,28 +31,57 @@ export class ProductsService {
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
     private readonly storage: StorageService,
+    private readonly cache: CatalogCacheService,
   ) {}
 
-  /** Public catalog: every product, newest first, keyset-paginated. */
-  findAllForCustomers(
+  /**
+   * Public catalog: only ACTIVE products, newest first, keyset-paginated.
+   * Cached per (list version, cursor, limit); the version is bumped on any
+   * product mutation, superseding all previously cached pages.
+   */
+  async findAllForCustomers(
     query: PaginationQueryDto,
   ): Promise<PaginatedResult<Product>> {
-    return this.paginate(query);
+    const version = await this.cache.listVersion();
+    const key = this.cache.listKey(version, query.cursor, query.limit);
+
+    const cached = await this.cache.get<PaginatedResult<Product>>(key);
+    if (cached) {
+      return cached;
+    }
+
+    const result = await this.paginate(query, undefined, true);
+    await this.cache.set(key, result);
+    return result;
   }
 
-  /** Public product detail, including its image gallery. */
-  findOneForCustomers(id: string): Promise<ProductView> {
-    return this.loadWithImages(id);
+  /** Public product detail (ACTIVE only), including its image gallery. */
+  async findOneForCustomers(id: string): Promise<ProductView> {
+    const key = this.cache.productKey(id);
+
+    const cached = await this.cache.get<ProductView>(key);
+    if (cached) {
+      return cached;
+    }
+
+    const view = await this.loadWithImages(id, { activeOnly: true });
+    await this.cache.set(key, view);
+    return view;
   }
 
   /**
    * Loads a product with its images and resolves each image to a public URL.
-   * Used by both the public detail route and seller write responses, so it is
-   * deliberately NOT status-filtered.
+   * Seller/internal callers pass no options (any status); the public detail
+   * route passes `activeOnly` so drafts/archived surface as a 404.
    */
-  private async loadWithImages(id: string): Promise<ProductView> {
+  private async loadWithImages(
+    id: string,
+    opts: { activeOnly?: boolean } = {},
+  ): Promise<ProductView> {
     const product = await this.productRepository.findOne({
-      where: { id },
+      where: opts.activeOnly
+        ? { id, status: ProductStatus.ACTIVE }
+        : { id },
       relations: { images: true },
     });
     if (!product) {
@@ -121,6 +151,7 @@ export class ProductsService {
     if (!result.affected) {
       throw new NotFoundException(`Product ${id} not found.`);
     }
+    await this.cache.invalidateProduct(id);
     return this.loadWithImages(id);
   }
 
@@ -149,6 +180,7 @@ export class ProductsService {
     if (!result.affected) {
       throw new NotFoundException(`Product ${id} not found.`);
     }
+    await this.cache.invalidateProduct(id);
     return this.loadWithImages(id);
   }
 
@@ -158,6 +190,7 @@ export class ProductsService {
     if (!result.affected) {
       throw new NotFoundException(`Product ${id} not found.`);
     }
+    await this.cache.invalidateProduct(id);
   }
 
   /**
@@ -168,6 +201,7 @@ export class ProductsService {
   private async paginate(
     query: PaginationQueryDto,
     sellerId?: string,
+    activeOnly = false,
   ): Promise<PaginatedResult<Product>> {
     const qb = this.productRepository
       .createQueryBuilder('product')
@@ -177,7 +211,13 @@ export class ProductsService {
       .take(query.limit + 1);
 
     if (sellerId) {
-      qb.where('product.sellerId = :sellerId', { sellerId });
+      qb.andWhere('product.sellerId = :sellerId', { sellerId });
+    }
+
+    if (activeOnly) {
+      qb.andWhere('product.status = :active', {
+        active: ProductStatus.ACTIVE,
+      });
     }
 
     const cursor = this.decodeCursor(query.cursor);

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { CatalogCacheService } from '../cache/catalog-cache.service';
 import { StorageService } from '../storage/storage.service';
 import { ConfirmImageDto } from './dto/confirm-image.dto';
 import { PresignImageDto } from './dto/presign-image.dto';
@@ -33,6 +34,7 @@ export class ProductImagesService {
     @InjectRepository(ProductImage)
     private readonly imageRepository: Repository<ProductImage>,
     private readonly storage: StorageService,
+    private readonly cache: CatalogCacheService,
   ) {}
 
   /**
@@ -88,6 +90,8 @@ export class ProductImagesService {
       contentType: dto.contentType ?? null,
     });
     const saved = await this.imageRepository.save(image);
+    // The product's cached detail (and any list thumbnail) is now stale.
+    await this.cache.invalidateProduct(productId);
     return this.toView(saved);
   }
 
@@ -119,6 +123,7 @@ export class ProductImagesService {
     }
     await this.imageRepository.delete({ id: imageId });
     await this.storage.deleteObject(image.objectKey);
+    await this.cache.invalidateProduct(productId);
   }
 
   private async assertOwnedProduct(
