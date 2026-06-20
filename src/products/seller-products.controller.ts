@@ -13,6 +13,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SellerGuard } from '../auth/guards/seller.guard';
@@ -27,6 +28,8 @@ import { ProductsService } from './products.service';
  * SellerGuard, so `sellerId` is guaranteed non-null by the time a handler
  * runs. All writes are scoped to the caller's own `sellerId`.
  */
+@ApiTags('seller-products')
+@ApiBearerAuth()
 @Controller('sellers/v1/products')
 @UseGuards(JwtAuthGuard, SellerGuard)
 @UseInterceptors(TransformInterceptor)

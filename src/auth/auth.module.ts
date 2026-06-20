@@ -6,12 +6,15 @@ import { SellersModule } from '../sellers/sellers.module';
 import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { AdminGuard } from './guards/admin.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { SellerGuard } from './guards/seller.guard';
 
 @Module({
   imports: [
-    UsersModule,
+    // forwardRef breaks the Auth <-> Users cycle (UsersModule imports
+    // AuthModule for its guards).
+    forwardRef(() => UsersModule),
     CustomersModule,
     // forwardRef breaks the Auth <-> Sellers cycle: AuthService reads seller
     // profiles, while the seller-activation flow refreshes its token here.
@@ -30,8 +33,8 @@ import { SellerGuard } from './guards/seller.guard';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthGuard, SellerGuard],
+  providers: [AuthService, JwtAuthGuard, SellerGuard, AdminGuard],
   // Export guards + JwtModule so feature modules can protect their routes.
-  exports: [AuthService, JwtAuthGuard, SellerGuard, JwtModule],
+  exports: [AuthService, JwtAuthGuard, SellerGuard, AdminGuard, JwtModule],
 })
 export class AuthModule {}

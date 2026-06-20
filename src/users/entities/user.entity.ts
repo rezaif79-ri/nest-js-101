@@ -27,6 +27,16 @@ export class User {
   @Column({ select: false })
   password!: string;
 
+  // Grants access to admin-only routes. Carried in the JWT so guards can
+  // authorize without a DB round-trip.
+  @Column({ default: false })
+  isAdmin!: boolean;
+
+  // Soft-deactivation flag. A deactivated user is blocked at login; their
+  // row is retained rather than deleted.
+  @Column({ default: true })
+  isActive!: boolean;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 

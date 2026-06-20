@@ -12,10 +12,13 @@ import { AuthService } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthenticatedUser } from '../auth/interfaces/jwt-payload.interface';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthTokenResponse } from '../auth/dto/login.dto';
 import { TransformInterceptor } from '../common/interceptors/transform.interceptor';
 import { SellersService } from './sellers.service';
 
+@ApiTags('sellers')
+@ApiBearerAuth()
 @Controller('sellers/v1')
 @UseInterceptors(TransformInterceptor)
 export class SellersController {

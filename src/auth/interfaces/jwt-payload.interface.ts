@@ -9,6 +9,8 @@ export interface JwtPayload {
   email: string;
   customerId: string | null;
   sellerId: string | null;
+  /** Grants access to admin-only routes. */
+  isAdmin: boolean;
 }
 
 /**
@@ -20,4 +22,5 @@ export interface AuthenticatedUser {
   email: string;
   customerId: string | null;
   sellerId: string | null;
+  isAdmin: boolean;
 }

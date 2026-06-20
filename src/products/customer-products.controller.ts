@@ -6,6 +6,7 @@ import {
   Query,
   UseInterceptors,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { TransformInterceptor } from '../common/interceptors/transform.interceptor';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { ProductsService } from './products.service';
@@ -14,6 +15,7 @@ import { ProductsService } from './products.service';
  * Public, read-only catalog surface for customers. No seller scoping here —
  * customers browse every product.
  */
+@ApiTags('customer-products')
 @Controller('customers/v1/products')
 @UseInterceptors(TransformInterceptor)
 export class CustomerProductsController {

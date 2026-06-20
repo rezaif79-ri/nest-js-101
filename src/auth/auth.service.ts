@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   UnauthorizedException,
@@ -79,6 +80,12 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password.');
     }
 
+    // Block deactivated accounts. (Tokens issued before deactivation remain
+    // valid until they expire — acceptable for this scope.)
+    if (!user.isActive) {
+      throw new ForbiddenException('This account has been deactivated.');
+    }
+
     return this.issueToken(user.id, user.email);
   }
 
@@ -88,7 +95,8 @@ export class AuthService {
    * newly created `sellerId` is reflected immediately without re-login.
    */
   async issueToken(userId: string, email: string): Promise<AuthTokenResponse> {
-    const [customer, seller] = await Promise.all([
+    const [user, customer, seller] = await Promise.all([
+      this.usersService.findById(userId),
       this.customersService.findByUserId(userId),
       this.sellersService.findByUserId(userId),
     ]);
@@ -98,6 +106,7 @@ export class AuthService {
       email,
       customerId: customer?.id ?? null,
       sellerId: seller?.id ?? null,
+      isAdmin: user?.isAdmin ?? false,
     };
 
     return {
