@@ -1,19 +1,28 @@
 import { Injectable } from '@nestjs/common';
-import { User } from './interface/users.interface';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { User } from './entities/user.entity';
 
 @Injectable()
 export class UsersService {
-  private readonly users: User[] = [];
+  constructor(
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
+  ) {}
 
-  create(user: User) {
-    this.users.push({
-      name: user.name,
-      age: user.age,
-      address: user.address || undefined,
-    });
+  findById(id: string): Promise<User | null> {
+    return this.userRepository.findOne({ where: { id } });
   }
 
-  findAll(): User[] {
-    return this.users;
+  /**
+   * Loads a user together with the password hash (which is `select: false`
+   * on the entity), for credential verification during login.
+   */
+  findByEmailWithPassword(email: string): Promise<User | null> {
+    return this.userRepository
+      .createQueryBuilder('user')
+      .where('user.email = :email', { email })
+      .addSelect('user.password')
+      .getOne();
   }
 }
