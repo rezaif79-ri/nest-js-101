@@ -71,6 +71,22 @@ export class CatalogCacheService implements OnModuleDestroy {
   }
 
   /**
+   * Bump the list version only, superseding every cached catalog list page
+   * (including category-filtered ones) without touching product detail keys.
+   * Used when a change affects list membership/filtering but not any single
+   * product's detail payload — e.g. deleting a category unlinks its products.
+   */
+  async invalidateList(): Promise<void> {
+    try {
+      await this.redis.incr(`${this.prefix}:list:ver`);
+    } catch (err) {
+      this.logger.warn(
+        `Cache list invalidation failed: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /**
    * Invalidate everything affected by a product mutation: drop its detail key
    * and bump the list version so all cached pages are superseded.
    */
