@@ -22,6 +22,27 @@ export class Customer {
   @CreateDateColumn({ type: 'timestamptz' })
   registeredAt!: Date;
 
+  // --- Personal profile (all optional; populated after registration) ---
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  displayName!: string | null;
+
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  firstName!: string | null;
+
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  lastName!: string | null;
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  phone!: string | null;
+
+  // Storage key for the avatar image (same convention as product images);
+  // null when no avatar has been uploaded.
+  @Column({ type: 'varchar', nullable: true })
+  avatarObjectKey!: string | null;
+
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  locale!: string | null;
+
   @Column({ type: 'uuid', unique: true })
   userId!: string;
 

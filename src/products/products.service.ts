@@ -1,15 +1,22 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { StorageService } from '../storage/storage.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { Product } from './entities/product.entity';
+import { Product, ProductStatus } from './entities/product.entity';
+import { ProductImageView } from './product-images.service';
 
 /** A page of results plus the cursor used to request the next page. */
 export interface PaginatedResult<T> {
   items: T[];
   nextCursor: string | null;
+}
+
+/** Product with its images resolved to public URLs for API responses. */
+export interface ProductView extends Product {
+  images: ProductImageView[];
 }
 
 interface Cursor {
@@ -22,6 +29,7 @@ export class ProductsService {
   constructor(
     @InjectRepository(Product)
     private readonly productRepository: Repository<Product>,
+    private readonly storage: StorageService,
   ) {}
 
   /** Public catalog: every product, newest first, keyset-paginated. */
@@ -31,12 +39,36 @@ export class ProductsService {
     return this.paginate(query);
   }
 
-  async findOneForCustomers(id: string): Promise<Product> {
-    const product = await this.productRepository.findOne({ where: { id } });
+  /** Public product detail, including its image gallery. */
+  findOneForCustomers(id: string): Promise<ProductView> {
+    return this.loadWithImages(id);
+  }
+
+  /**
+   * Loads a product with its images and resolves each image to a public URL.
+   * Used by both the public detail route and seller write responses, so it is
+   * deliberately NOT status-filtered.
+   */
+  private async loadWithImages(id: string): Promise<ProductView> {
+    const product = await this.productRepository.findOne({
+      where: { id },
+      relations: { images: true },
+    });
     if (!product) {
       throw new NotFoundException(`Product ${id} not found.`);
     }
-    return product;
+    return this.serialize(product);
+  }
+
+  private serialize(product: Product): ProductView {
+    const images = (product.images ?? [])
+      .slice()
+      .sort((a, b) => a.position - b.position)
+      .map((image) => ({
+        ...image,
+        url: this.storage.publicUrl(image.objectKey),
+      }));
+    return { ...product, images };
   }
 
   /** Seller dashboard: only this seller's products. */
@@ -47,9 +79,32 @@ export class ProductsService {
     return this.paginate(query, sellerId);
   }
 
-  create(sellerId: string, dto: CreateProductDto): Promise<Product> {
-    const product = this.productRepository.create({ ...dto, sellerId });
-    return this.productRepository.save(product);
+  async create(sellerId: string, dto: CreateProductDto): Promise<ProductView> {
+    const slug = await this.generateUniqueSlug(dto.title);
+    const product = this.productRepository.create({ ...dto, sellerId, slug });
+    const saved = await this.productRepository.save(product);
+    return this.serialize(saved);
+  }
+
+  /**
+   * Builds a URL-safe slug from the title and guarantees uniqueness by
+   * appending a short random suffix on collision. Falls back to a generated
+   * base when the title slugifies to empty (e.g. all-symbol titles).
+   */
+  private async generateUniqueSlug(title: string): Promise<string> {
+    const base =
+      title
+        .toLowerCase()
+        .normalize('NFKD')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 80) || 'product';
+
+    let candidate = base;
+    while (await this.productRepository.exists({ where: { slug: candidate } })) {
+      candidate = `${base}-${Math.random().toString(36).slice(2, 7)}`;
+    }
+    return candidate;
   }
 
   /**
@@ -61,12 +116,40 @@ export class ProductsService {
     id: string,
     sellerId: string,
     dto: UpdateProductDto,
-  ): Promise<Product> {
+  ): Promise<ProductView> {
     const result = await this.productRepository.update({ id, sellerId }, dto);
     if (!result.affected) {
       throw new NotFoundException(`Product ${id} not found.`);
     }
-    return this.findOneForCustomers(id);
+    return this.loadWithImages(id);
+  }
+
+  /**
+   * Publish: flip an owned product to `active` so it appears in the public
+   * catalog. Ownership-scoped via the same id + sellerId guard.
+   */
+  publish(id: string, sellerId: string): Promise<ProductView> {
+    return this.setStatus(id, sellerId, ProductStatus.ACTIVE);
+  }
+
+  /** Unpublish: return an owned product to `draft`, hiding it from customers. */
+  unpublish(id: string, sellerId: string): Promise<ProductView> {
+    return this.setStatus(id, sellerId, ProductStatus.DRAFT);
+  }
+
+  private async setStatus(
+    id: string,
+    sellerId: string,
+    status: ProductStatus,
+  ): Promise<ProductView> {
+    const result = await this.productRepository.update(
+      { id, sellerId },
+      { status },
+    );
+    if (!result.affected) {
+      throw new NotFoundException(`Product ${id} not found.`);
+    }
+    return this.loadWithImages(id);
   }
 
   /** Ownership-scoped delete using the same id + sellerId guard. */

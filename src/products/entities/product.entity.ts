@@ -2,12 +2,23 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   JoinColumn,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { Seller } from '../../sellers/entities/seller.entity';
+import { Category } from './category.entity';
+import { ProductImage } from './product-image.entity';
+
+/** Lifecycle state. Only `active` products are exposed in the public catalog. */
+export enum ProductStatus {
+  DRAFT = 'draft',
+  ACTIVE = 'active',
+  ARCHIVED = 'archived',
+}
 
 /**
  * Catalog product owned by a `Seller`. The `sellerId` FK references the
@@ -21,6 +32,16 @@ export class Product {
 
   @Column()
   title!: string;
+
+  // URL-/cache-key-friendly identifier, unique across the catalog. Derived
+  // from the title at create time.
+  @Column({ unique: true })
+  slug!: string;
+
+  // Short blurb for list/card views, so the catalog list need not ship the
+  // full description body. Nullable until the seller fills it in.
+  @Column({ type: 'varchar', length: 300, nullable: true })
+  shortDescription!: string | null;
 
   @Column({ type: 'text' })
   description!: string;
@@ -38,8 +59,22 @@ export class Product {
   })
   price!: number;
 
+  // ISO 4217 currency code for `price`. Defaults to the store base currency.
+  @Column({ type: 'char', length: 3, default: 'USD' })
+  currency!: string;
+
   @Column({ type: 'int', default: 0 })
   stock!: number;
+
+  // Publishing state. New products start as draft (hidden from the public
+  // catalog) until the seller explicitly publishes them.
+  @Index()
+  @Column({
+    type: 'enum',
+    enum: ProductStatus,
+    default: ProductStatus.DRAFT,
+  })
+  status!: ProductStatus;
 
   @Column({ type: 'uuid' })
   sellerId!: string;
@@ -47,6 +82,21 @@ export class Product {
   @ManyToOne(() => Seller, (seller) => seller.products, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'sellerId' })
   seller!: Seller;
+
+  // Nullable: a product need not be categorised. SET NULL on category delete
+  // keeps the product around.
+  @Column({ type: 'uuid', nullable: true })
+  categoryId!: string | null;
+
+  @ManyToOne(() => Category, (category) => category.products, {
+    onDelete: 'SET NULL',
+    nullable: true,
+  })
+  @JoinColumn({ name: 'categoryId' })
+  category!: Category | null;
+
+  @OneToMany(() => ProductImage, (image) => image.product, { cascade: false })
+  images!: ProductImage[];
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

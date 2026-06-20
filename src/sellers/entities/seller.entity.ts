@@ -24,6 +24,38 @@ export class Seller {
   @CreateDateColumn({ type: 'timestamptz' })
   registeredAt!: Date;
 
+  // --- Personal profile (mirrors Customer; all optional) ---
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  displayName!: string | null;
+
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  firstName!: string | null;
+
+  @Column({ type: 'varchar', length: 80, nullable: true })
+  lastName!: string | null;
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  phone!: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  avatarObjectKey!: string | null;
+
+  @Column({ type: 'varchar', length: 10, nullable: true })
+  locale!: string | null;
+
+  // --- Storefront (seller-specific) ---
+  @Column({ type: 'varchar', length: 120, nullable: true, unique: true })
+  shopName!: string | null;
+
+  @Column({ type: 'varchar', length: 140, nullable: true, unique: true })
+  shopSlug!: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  shopDescription!: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  shopLogoObjectKey!: string | null;
+
   @Column({ type: 'uuid', unique: true })
   userId!: string;
 
