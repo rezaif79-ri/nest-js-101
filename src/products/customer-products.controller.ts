@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { TransformInterceptor } from '../common/interceptors/transform.interceptor';
-import { PaginationQueryDto } from './dto/pagination-query.dto';
+import { CatalogQueryDto } from './dto/catalog-query.dto';
 import { ProductsService } from './products.service';
 
 /**
@@ -22,7 +22,7 @@ export class CustomerProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   @Get()
-  findAll(@Query() query: PaginationQueryDto) {
+  findAll(@Query() query: CatalogQueryDto) {
     return this.productsService.findAllForCustomers(query);
   }
 

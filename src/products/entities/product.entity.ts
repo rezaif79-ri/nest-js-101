@@ -84,7 +84,8 @@ export class Product {
   seller!: Seller;
 
   // Nullable: a product need not be categorised. SET NULL on category delete
-  // keeps the product around.
+  // keeps the product around. Indexed because the public catalog filters by it.
+  @Index()
   @Column({ type: 'uuid', nullable: true })
   categoryId!: string | null;
 

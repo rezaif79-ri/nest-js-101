@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
+import { CategoriesModule } from '../categories/categories.module';
 import { CustomerProductsController } from './customer-products.controller';
 import { Category } from './entities/category.entity';
 import { Product } from './entities/product.entity';
@@ -14,6 +15,8 @@ import { SellerProductsController } from './seller-products.controller';
     TypeOrmModule.forFeature([Product, Category, ProductImage]),
     // Provides JwtAuthGuard / SellerGuard (and JwtModule) for seller routes.
     AuthModule,
+    // Provides CategoriesService so create/update can validate categoryId.
+    CategoriesModule,
   ],
   controllers: [CustomerProductsController, SellerProductsController],
   providers: [ProductsService, ProductImagesService],

@@ -56,8 +56,14 @@ export class CatalogCacheService implements OnModuleDestroy {
     return `${this.prefix}:product:${id}`;
   }
 
-  listKey(version: number, cursor: string | undefined, limit: number): string {
-    return `${this.prefix}:list:v${version}:${cursor ?? 'root'}:${limit}`;
+  listKey(
+    version: number,
+    cursor: string | undefined,
+    limit: number,
+    categoryId?: string,
+  ): string {
+    const scope = categoryId ?? 'all';
+    return `${this.prefix}:list:v${version}:${scope}:${cursor ?? 'root'}:${limit}`;
   }
 
   /** Current list-cache version; defaults to 0 (and fails open to 0). */

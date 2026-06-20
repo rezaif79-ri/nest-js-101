@@ -2,8 +2,10 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CatalogCacheService } from '../cache/catalog-cache.service';
+import { CategoriesService } from '../categories/categories.service';
 import { generateUniqueSlug, slugify } from '../common/slugify';
 import { StorageService } from '../storage/storage.service';
+import { CatalogQueryDto } from './dto/catalog-query.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -33,6 +35,7 @@ export class ProductsService {
     private readonly productRepository: Repository<Product>,
     private readonly storage: StorageService,
     private readonly cache: CatalogCacheService,
+    private readonly categories: CategoriesService,
   ) {}
 
   /**
@@ -41,17 +44,25 @@ export class ProductsService {
    * product mutation, superseding all previously cached pages.
    */
   async findAllForCustomers(
-    query: PaginationQueryDto,
+    query: CatalogQueryDto,
   ): Promise<PaginatedResult<Product>> {
     const version = await this.cache.listVersion();
-    const key = this.cache.listKey(version, query.cursor, query.limit);
+    const key = this.cache.listKey(
+      version,
+      query.cursor,
+      query.limit,
+      query.categoryId,
+    );
 
     const cached = await this.cache.get<PaginatedResult<Product>>(key);
     if (cached) {
       return cached;
     }
 
-    const result = await this.paginate(query, undefined, true);
+    const result = await this.paginate(query, {
+      activeOnly: true,
+      categoryId: query.categoryId,
+    });
     await this.cache.set(key, result);
     return result;
   }
@@ -107,10 +118,14 @@ export class ProductsService {
     sellerId: string,
     query: PaginationQueryDto,
   ): Promise<PaginatedResult<Product>> {
-    return this.paginate(query, sellerId);
+    return this.paginate(query, { sellerId });
   }
 
   async create(sellerId: string, dto: CreateProductDto): Promise<ProductView> {
+    if (dto.categoryId) {
+      // 404s if the category doesn't exist, before we persist a dangling FK.
+      await this.categories.requireExisting(dto.categoryId);
+    }
     const slug = await this.generateUniqueSlug(dto.title);
     const product = this.productRepository.create({ ...dto, sellerId, slug });
     const saved = await this.productRepository.save(product);
@@ -138,6 +153,9 @@ export class ProductsService {
     sellerId: string,
     dto: UpdateProductDto,
   ): Promise<ProductView> {
+    if (dto.categoryId) {
+      await this.categories.requireExisting(dto.categoryId);
+    }
     const result = await this.productRepository.update({ id, sellerId }, dto);
     if (!result.affected) {
       throw new NotFoundException(`Product ${id} not found.`);
@@ -191,8 +209,7 @@ export class ProductsService {
    */
   private async paginate(
     query: PaginationQueryDto,
-    sellerId?: string,
-    activeOnly = false,
+    opts: { sellerId?: string; activeOnly?: boolean; categoryId?: string } = {},
   ): Promise<PaginatedResult<Product>> {
     const qb = this.productRepository
       .createQueryBuilder('product')
@@ -201,13 +218,19 @@ export class ProductsService {
       // Fetch one extra row to detect whether a further page exists.
       .take(query.limit + 1);
 
-    if (sellerId) {
-      qb.andWhere('product.sellerId = :sellerId', { sellerId });
+    if (opts.sellerId) {
+      qb.andWhere('product.sellerId = :sellerId', { sellerId: opts.sellerId });
     }
 
-    if (activeOnly) {
+    if (opts.activeOnly) {
       qb.andWhere('product.status = :active', {
         active: ProductStatus.ACTIVE,
+      });
+    }
+
+    if (opts.categoryId) {
+      qb.andWhere('product.categoryId = :categoryId', {
+        categoryId: opts.categoryId,
       });
     }
 
