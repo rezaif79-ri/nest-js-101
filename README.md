@@ -93,11 +93,15 @@ src/
 │   ├── sellers.controller.ts    # /sellers/v1/activate
 │   └── ...
 ├── products/
-│   ├── customer-products.controller.ts   # /customers/v1/products
+│   ├── customer-products.controller.ts   # /customers/v1/products (+ ?categoryId)
 │   ├── seller-products.controller.ts     # /sellers/v1/products
-│   ├── dto/                     # create, update, pagination
+│   ├── dto/                     # create, update, pagination, catalog-query
 │   └── products.service.ts      # keyset pagination + ownership checks
-├── common/       (filters, interceptors, dto)
+├── categories/
+│   ├── admin-categories.controller.ts    # /admin/categories (CRUD)
+│   ├── customer-categories.controller.ts # /customers/v1/categories (read)
+│   └── categories.service.ts    # slug + parent-cycle validation
+├── common/       (filters, interceptors, dto, slugify)
 ├── types/        express.d.ts   # types request.user
 ├── app.module.ts                # ConfigModule + TypeOrmModule wiring
 └── main.ts                      # global ValidationPipe + exception filter
@@ -150,17 +154,31 @@ All responses are wrapped in a standard envelope (see [Response format](#-respon
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
-| `GET` | `/customers/v1/products` | — | List all products (keyset paginated) |
+| `GET` | `/customers/v1/products` | — | List active products (keyset paginated); filter with `?categoryId=` |
 | `GET` | `/customers/v1/products/:id` | — | Get a single product |
+| `GET` | `/customers/v1/categories` | — | List all categories (for nav / filter discovery) |
+| `GET` | `/customers/v1/categories/:id` | — | Get a single category |
 
 ### Seller products — `sellers/v1`
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
 | `GET` | `/sellers/v1/products` | JWT + Seller | List **only** the caller's products |
-| `POST` | `/sellers/v1/products` | JWT + Seller | Create a product (bound to caller's `sellerId`) |
-| `PUT` | `/sellers/v1/products/:id` | JWT + Seller | Update — **ownership-scoped** |
+| `POST` | `/sellers/v1/products` | JWT + Seller | Create a product (bound to caller's `sellerId`; optional `categoryId`) |
+| `PUT` | `/sellers/v1/products/:id` | JWT + Seller | Update — **ownership-scoped** (optional `categoryId`) |
 | `DELETE` | `/sellers/v1/products/:id` | JWT + Seller | Delete — **ownership-scoped** |
+
+### Categories (admin) — `admin/categories`
+
+Categories are a shared reference set (a shallow tree), so they are admin-managed rather than seller-scoped. Slugs are auto-generated from the name and stay stable across renames.
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| `GET` | `/admin/categories` | JWT + Admin | List all categories |
+| `GET` | `/admin/categories/:id` | JWT + Admin | Get a single category |
+| `POST` | `/admin/categories` | JWT + Admin | Create (optional `parentId`) |
+| `PATCH` | `/admin/categories/:id` | JWT + Admin | Update name / reparent (`parentId: null` detaches) |
+| `DELETE` | `/admin/categories/:id` | JWT + Admin | Delete (products are `SET NULL` out of it) |
 
 ### Example requests
 
@@ -223,6 +241,28 @@ curl "http://localhost:3000/customers/v1/products?limit=20&cursor=<nextCursor>"
 ```
 ```json
 { "status": "success", "data": { "items": [ /* … */ ], "nextCursor": "eyJ…" | null } }
+```
+</details>
+
+<details>
+<summary><strong>Create a category & filter the catalog by it</strong></summary>
+
+```bash
+# Admin creates a category
+curl -X POST http://localhost:3000/admin/categories \
+  -H "Authorization: Bearer <admin-token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "Electronics" }'
+# → { "status": "success", "data": { "id": "<categoryId>", "slug": "electronics", … } }
+
+# Seller assigns it to a product (on create or update)
+curl -X PUT http://localhost:3000/sellers/v1/products/<productId> \
+  -H "Authorization: Bearer <seller-token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "categoryId": "<categoryId>" }'
+
+# Customer filters the public catalog by category
+curl "http://localhost:3000/customers/v1/products?categoryId=<categoryId>&limit=20"
 ```
 </details>
 
