@@ -9,6 +9,7 @@ import { EntityManager, Repository } from 'typeorm';
 import { EXTENSION_BY_TYPE } from '../common/upload';
 import { PresignUploadDto } from '../common/dto/presign-upload.dto';
 import { StorageService } from '../storage/storage.service';
+import { MeDto } from './dto/me-response.dto';
 import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
 import { Customer } from './entities/customer.entity';
 
@@ -39,8 +40,30 @@ export class CustomersService {
     return manager.save(customer);
   }
 
-  async getProfile(userId: string): Promise<CustomerProfileView> {
-    return this.toView(await this.getOwn(userId));
+  /**
+   * The `/me` payload: identity (user id + email + customer id) plus profile.
+   * `email` comes from the token (no extra query); `fullName` is derived.
+   */
+  async getProfile(userId: string, email: string): Promise<MeDto> {
+    const customer = await this.getOwn(userId);
+    const joinedName = [customer.firstName, customer.lastName]
+      .filter(Boolean)
+      .join(' ');
+    const fullName = customer.displayName ?? (joinedName || null);
+    return {
+      id: userId,
+      email,
+      customerId: customer.id,
+      fullName,
+      displayName: customer.displayName,
+      firstName: customer.firstName,
+      lastName: customer.lastName,
+      phone: customer.phone,
+      locale: customer.locale,
+      avatarUrl: customer.avatarObjectKey
+        ? this.storage.publicUrl(customer.avatarObjectKey)
+        : null,
+    };
   }
 
   async updateProfile(

@@ -66,6 +66,13 @@ export class Product {
   @Column({ type: 'int', default: 0 })
   stock!: number;
 
+  // Curated homepage flag. The public catalog can filter on this so the
+  // "Featured" strip is intentional rather than just the first page. Indexed
+  // because the catalog filters by it.
+  @Index()
+  @Column({ type: 'boolean', default: false })
+  featured!: boolean;
+
   // Publishing state. New products start as draft (hidden from the public
   // catalog) until the seller explicitly publishes them.
   @Index()

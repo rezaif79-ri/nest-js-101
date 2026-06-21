@@ -32,6 +32,71 @@ export class CategoriesService {
     return category;
   }
 
+  /**
+   * Customer-facing detail: the category plus its direct children, so a
+   * top-level category page can offer (or union) its subcategories.
+   */
+  async findOneWithChildren(id: string): Promise<Category> {
+    const category = await this.categoryRepository.findOne({
+      where: { id },
+      relations: { children: true },
+    });
+    if (!category) {
+      throw new NotFoundException(`Category ${id} not found.`);
+    }
+    category.children = (category.children ?? []).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+    return category;
+  }
+
+  /** Customer-facing detail by slug — for clean /category/{slug} URLs. */
+  async findBySlugWithChildren(slug: string): Promise<Category> {
+    const category = await this.categoryRepository.findOne({
+      where: { slug },
+      relations: { children: true },
+    });
+    if (!category) {
+      throw new NotFoundException(`Category ${slug} not found.`);
+    }
+    category.children = (category.children ?? []).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+    return category;
+  }
+
+  /**
+   * The id of `rootId` plus every descendant, via one bounded read of the
+   * category table and a BFS. Used to roll a category filter up so a top-level
+   * category (which has no directly-assigned products) still returns the
+   * products assigned to its leaf descendants.
+   */
+  async getSubtreeIds(rootId: string): Promise<string[]> {
+    const all = await this.categoryRepository.find({
+      select: { id: true, parentId: true },
+    });
+    const childrenByParent = new Map<string, string[]>();
+    for (const c of all) {
+      if (c.parentId) {
+        const siblings = childrenByParent.get(c.parentId) ?? [];
+        siblings.push(c.id);
+        childrenByParent.set(c.parentId, siblings);
+      }
+    }
+
+    const ids: string[] = [];
+    const queue = [rootId];
+    while (queue.length > 0) {
+      const id = queue.shift() as string;
+      ids.push(id);
+      const children = childrenByParent.get(id);
+      if (children) {
+        queue.push(...children);
+      }
+    }
+    return ids;
+  }
+
   async create(dto: CreateCategoryDto): Promise<Category> {
     if (dto.parentId) {
       await this.requireExisting(dto.parentId);

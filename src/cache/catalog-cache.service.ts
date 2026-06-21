@@ -39,7 +39,9 @@ export class CatalogCacheService implements OnModuleDestroy {
       const raw = await this.redis.get(key);
       return raw ? (JSON.parse(raw) as T) : null;
     } catch (err) {
-      this.logger.warn(`Cache get failed for ${key}: ${(err as Error).message}`);
+      this.logger.warn(
+        `Cache get failed for ${key}: ${(err as Error).message}`,
+      );
       return null;
     }
   }
@@ -48,7 +50,9 @@ export class CatalogCacheService implements OnModuleDestroy {
     try {
       await this.redis.set(key, JSON.stringify(value), 'EX', ttl);
     } catch (err) {
-      this.logger.warn(`Cache set failed for ${key}: ${(err as Error).message}`);
+      this.logger.warn(
+        `Cache set failed for ${key}: ${(err as Error).message}`,
+      );
     }
   }
 
@@ -58,12 +62,21 @@ export class CatalogCacheService implements OnModuleDestroy {
 
   listKey(
     version: number,
-    cursor: string | undefined,
-    limit: number,
-    categoryId?: string,
+    params: {
+      cursor?: string;
+      limit: number;
+      categoryId?: string;
+      sort?: string;
+      q?: string;
+      featured?: boolean;
+    },
   ): string {
-    const scope = categoryId ?? 'all';
-    return `${this.prefix}:list:v${version}:${scope}:${cursor ?? 'root'}:${limit}`;
+    const scope = params.categoryId ?? 'all';
+    const sort = params.sort ?? 'newest';
+    // base64url the free-text query so it can't collide with the delimiter.
+    const q = params.q ? Buffer.from(params.q).toString('base64url') : 'none';
+    const featured = params.featured ? 'feat' : 'all';
+    return `${this.prefix}:list:v${version}:${scope}:${sort}:${q}:${featured}:${params.cursor ?? 'root'}:${params.limit}`;
   }
 
   /** Current list-cache version; defaults to 0 (and fails open to 0). */

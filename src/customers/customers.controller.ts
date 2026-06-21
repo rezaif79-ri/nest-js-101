@@ -10,13 +10,14 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ConfirmObjectDto } from '../common/dto/confirm-object.dto';
 import { PresignUploadDto } from '../common/dto/presign-upload.dto';
 import { TransformInterceptor } from '../common/interceptors/transform.interceptor';
 import { CustomersService } from './customers.service';
+import { MeDto } from './dto/me-response.dto';
 import { UpdateCustomerProfileDto } from './dto/update-customer-profile.dto';
 
 /**
@@ -32,8 +33,12 @@ export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
   @Get()
-  getProfile(@CurrentUser('userId') userId: string) {
-    return this.customersService.getProfile(userId);
+  @ApiOkResponse({ type: MeDto })
+  getProfile(
+    @CurrentUser('userId') userId: string,
+    @CurrentUser('email') email: string,
+  ) {
+    return this.customersService.getProfile(userId, email);
   }
 
   @Patch()

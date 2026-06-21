@@ -59,7 +59,9 @@ export class AuthService {
       });
     } catch (error) {
       if (this.isUniqueViolation(error)) {
-        throw new ConflictException('An account with this email already exists.');
+        throw new ConflictException(
+          'An account with this email already exists.',
+        );
       }
       throw new InternalServerErrorException('Failed to register user.');
     }
@@ -109,11 +111,31 @@ export class AuthService {
       isAdmin: user?.isAdmin ?? false,
     };
 
+    const accessToken = await this.jwtService.signAsync(payload);
+
     return {
-      accessToken: await this.jwtService.signAsync(payload),
+      accessToken,
+      // Derive the lifetime from the signed token itself (exp - iat), so it
+      // stays accurate regardless of how JWT_EXPIRES_IN is formatted.
+      expiresIn: this.tokenLifetimeSeconds(accessToken),
       customerId: payload.customerId,
       sellerId: payload.sellerId,
     };
+  }
+
+  /** Seconds until the token expires, read from its own exp/iat claims. */
+  private tokenLifetimeSeconds(token: string): number {
+    const decoded: unknown = this.jwtService.decode(token);
+    if (
+      decoded &&
+      typeof decoded === 'object' &&
+      'exp' in decoded &&
+      'iat' in decoded
+    ) {
+      const { exp, iat } = decoded as { exp: number; iat: number };
+      return exp - iat;
+    }
+    return 0;
   }
 
   private isUniqueViolation(error: unknown): boolean {

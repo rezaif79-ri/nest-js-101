@@ -8,6 +8,7 @@ import {
   Length,
   Min,
 } from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateProductDto {
   @IsString()
@@ -40,7 +41,10 @@ export class CreateProductDto {
   @Min(0)
   stock!: number;
 
-  @IsOptional()
+  // Required: every product must belong to a (leaf) category so it surfaces
+  // under category navigation. The FK column stays nullable so deleting a
+  // category SET NULLs its products rather than cascading the delete.
+  @ApiProperty({ format: 'uuid' })
   @IsUUID()
-  categoryId?: string;
+  categoryId!: string;
 }

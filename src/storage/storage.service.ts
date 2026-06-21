@@ -72,8 +72,16 @@ export class StorageService {
     }
   }
 
-  /** Public (or CDN) URL for an object key, for inclusion in API responses. */
+  /**
+   * Public (or CDN) URL for an object key, for inclusion in API responses.
+   * If the stored key is already an absolute http(s) URL (e.g. seeded
+   * placeholder imagery that lives off-bucket), it is returned verbatim so it
+   * still resolves; otherwise it is prefixed with the bucket/CDN base.
+   */
   publicUrl(objectKey: string): string {
+    if (/^https?:\/\//i.test(objectKey)) {
+      return objectKey;
+    }
     return `${this.publicBase}/${objectKey}`;
   }
 }

@@ -7,6 +7,8 @@ import { AuthModule } from './auth/auth.module';
 import { CacheModule } from './cache/cache.module';
 import { CategoriesModule } from './categories/categories.module';
 import { CustomersModule } from './customers/customers.module';
+import { OrdersModule } from './orders/orders.module';
+import { PaymentsModule } from './payments/payments.module';
 import { ProductsModule } from './products/products.module';
 import { SellersModule } from './sellers/sellers.module';
 import { StorageModule } from './storage/storage.module';
@@ -39,6 +41,8 @@ import { UsersModule } from './users/users.module';
     SellersModule,
     ProductsModule,
     CategoriesModule,
+    PaymentsModule,
+    OrdersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

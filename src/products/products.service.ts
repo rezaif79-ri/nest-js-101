@@ -1,11 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 import { CatalogCacheService } from '../cache/catalog-cache.service';
 import { CategoriesService } from '../categories/categories.service';
 import { generateUniqueSlug, slugify } from '../common/slugify';
 import { StorageService } from '../storage/storage.service';
-import { CatalogQueryDto } from './dto/catalog-query.dto';
+import { CatalogQueryDto, CatalogSort } from './dto/catalog-query.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -18,14 +18,32 @@ export interface PaginatedResult<T> {
   nextCursor: string | null;
 }
 
-/** Product with its images resolved to public URLs for API responses. */
+/** Product detail with its full image gallery + a convenience primary image. */
 export interface ProductView extends Product {
   images: ProductImageView[];
+  primaryImage: ProductImageView | null;
 }
 
+/** Catalog card: the product (minus the gallery) plus its primary image. */
+export type ProductListItemView = Omit<Product, 'images'> & {
+  primaryImage: ProductImageView | null;
+};
+
+/** Keyset cursor carrying every field any sort might compare on. */
 interface Cursor {
   createdAt: string;
+  price: number;
   id: string;
+}
+
+interface PaginateOptions {
+  sellerId?: string;
+  activeOnly?: boolean;
+  categoryIds?: string[];
+  featured?: boolean;
+  q?: string;
+  sort?: CatalogSort;
+  withImages?: boolean;
 }
 
 @Injectable()
@@ -39,30 +57,48 @@ export class ProductsService {
   ) {}
 
   /**
-   * Public catalog: only ACTIVE products, newest first, keyset-paginated.
-   * Cached per (list version, cursor, limit); the version is bumped on any
-   * product mutation, superseding all previously cached pages.
+   * Public catalog: only ACTIVE products, keyset-paginated. `categoryId` rolls
+   * up to include descendant categories. Cached per (list version, filters,
+   * cursor, limit); the version is bumped on any product mutation.
    */
   async findAllForCustomers(
     query: CatalogQueryDto,
-  ): Promise<PaginatedResult<Product>> {
+  ): Promise<PaginatedResult<ProductListItemView>> {
     const version = await this.cache.listVersion();
-    const key = this.cache.listKey(
-      version,
-      query.cursor,
-      query.limit,
-      query.categoryId,
-    );
+    const key = this.cache.listKey(version, {
+      cursor: query.cursor,
+      limit: query.limit,
+      categoryId: query.categoryId,
+      sort: query.sort,
+      q: query.q,
+      featured: query.featured,
+    });
 
-    const cached = await this.cache.get<PaginatedResult<Product>>(key);
+    const cached =
+      await this.cache.get<PaginatedResult<ProductListItemView>>(key);
     if (cached) {
       return cached;
     }
 
-    const result = await this.paginate(query, {
+    // Roll the requested category up to its whole subtree so top-level pages
+    // (which have no directly-assigned products) still return their leaves'.
+    const categoryIds = query.categoryId
+      ? await this.categories.getSubtreeIds(query.categoryId)
+      : undefined;
+
+    const page = await this.paginate(query, {
       activeOnly: true,
-      categoryId: query.categoryId,
+      categoryIds,
+      featured: query.featured,
+      q: query.q,
+      sort: query.sort,
+      withImages: true,
     });
+
+    const result: PaginatedResult<ProductListItemView> = {
+      items: page.items.map((p) => this.serializeListItem(p)),
+      nextCursor: page.nextCursor,
+    };
     await this.cache.set(key, result);
     return result;
   }
@@ -81,6 +117,20 @@ export class ProductsService {
     return view;
   }
 
+  /** Public product detail by slug (ACTIVE only) — for clean /product/{slug} URLs. */
+  async findOneBySlugForCustomers(slug: string): Promise<ProductView> {
+    const product = await this.productRepository.findOne({
+      where: { slug, status: ProductStatus.ACTIVE },
+      relations: { images: true },
+    });
+    if (!product) {
+      throw new NotFoundException(`Product ${slug} not found.`);
+    }
+    const view = this.serialize(product);
+    await this.cache.set(this.cache.productKey(product.id), view);
+    return view;
+  }
+
   /**
    * Loads a product with its images and resolves each image to a public URL.
    * Seller/internal callers pass no options (any status); the public detail
@@ -91,9 +141,7 @@ export class ProductsService {
     opts: { activeOnly?: boolean } = {},
   ): Promise<ProductView> {
     const product = await this.productRepository.findOne({
-      where: opts.activeOnly
-        ? { id, status: ProductStatus.ACTIVE }
-        : { id },
+      where: opts.activeOnly ? { id, status: ProductStatus.ACTIVE } : { id },
       relations: { images: true },
     });
     if (!product) {
@@ -102,15 +150,28 @@ export class ProductsService {
     return this.serialize(product);
   }
 
-  private serialize(product: Product): ProductView {
-    const images = (product.images ?? [])
+  /** Sorted, URL-resolved images from a raw image list. */
+  private resolveImages(images: Product['images']): ProductImageView[] {
+    return (images ?? [])
       .slice()
       .sort((a, b) => a.position - b.position)
       .map((image) => ({
         ...image,
         url: this.storage.publicUrl(image.objectKey),
       }));
-    return { ...product, images };
+  }
+
+  /** Full detail view (gallery + primary image). */
+  private serialize(product: Product): ProductView {
+    const images = this.resolveImages(product.images);
+    return { ...product, images, primaryImage: images[0] ?? null };
+  }
+
+  /** Card view: drops the gallery, keeps just the primary image. */
+  private serializeListItem(product: Product): ProductListItemView {
+    const { images, ...rest } = product;
+    const resolved = this.resolveImages(images);
+    return { ...rest, primaryImage: resolved[0] ?? null };
   }
 
   /** Seller dashboard: only this seller's products. */
@@ -203,44 +264,54 @@ export class ProductsService {
   }
 
   /**
-   * Keyset pagination over (createdAt, id) descending. Far more stable than
+   * Keyset pagination over a sort-dependent composite key. Far more stable than
    * OFFSET on large, frequently-written tables: no row-shift skips/dupes and
-   * the index range scan stays O(limit) regardless of depth.
+   * the index range scan stays O(limit) regardless of depth. The cursor carries
+   * every field a sort might compare on, and the ORDER BY + comparison switch
+   * on the chosen sort.
    */
   private async paginate(
     query: PaginationQueryDto,
-    opts: { sellerId?: string; activeOnly?: boolean; categoryId?: string } = {},
+    opts: PaginateOptions = {},
   ): Promise<PaginatedResult<Product>> {
+    const sort = opts.sort ?? CatalogSort.NEWEST;
     const qb = this.productRepository
       .createQueryBuilder('product')
-      .orderBy('product.createdAt', 'DESC')
-      .addOrderBy('product.id', 'DESC')
       // Fetch one extra row to detect whether a further page exists.
       .take(query.limit + 1);
+
+    if (opts.withImages) {
+      // TypeORM applies the limit via a distinct subquery when a *-to-many
+      // relation is joined, so keyset pagination stays correct.
+      qb.leftJoinAndSelect('product.images', 'image');
+    }
+
+    this.applyOrder(qb, sort);
 
     if (opts.sellerId) {
       qb.andWhere('product.sellerId = :sellerId', { sellerId: opts.sellerId });
     }
-
     if (opts.activeOnly) {
-      qb.andWhere('product.status = :active', {
-        active: ProductStatus.ACTIVE,
+      qb.andWhere('product.status = :active', { active: ProductStatus.ACTIVE });
+    }
+    if (opts.categoryIds && opts.categoryIds.length > 0) {
+      qb.andWhere('product.categoryId IN (:...categoryIds)', {
+        categoryIds: opts.categoryIds,
       });
     }
-
-    if (opts.categoryId) {
-      qb.andWhere('product.categoryId = :categoryId', {
-        categoryId: opts.categoryId,
-      });
+    if (opts.featured) {
+      qb.andWhere('product.featured = true');
+    }
+    if (opts.q) {
+      qb.andWhere(
+        '(product.title ILIKE :q OR product.shortDescription ILIKE :q)',
+        { q: `%${opts.q}%` },
+      );
     }
 
     const cursor = this.decodeCursor(query.cursor);
     if (cursor) {
-      // Postgres row-value comparison walks the composite key cleanly.
-      qb.andWhere(
-        '(product.createdAt, product.id) < (:createdAt, :cursorId)',
-        { createdAt: cursor.createdAt, cursorId: cursor.id },
-      );
+      this.applyCursor(qb, sort, cursor);
     }
 
     const rows = await qb.getMany();
@@ -254,9 +325,53 @@ export class ProductsService {
     };
   }
 
+  private applyOrder(qb: SelectQueryBuilder<Product>, sort: CatalogSort): void {
+    switch (sort) {
+      case CatalogSort.PRICE_ASC:
+        qb.orderBy('product.price', 'ASC').addOrderBy('product.id', 'ASC');
+        break;
+      case CatalogSort.PRICE_DESC:
+        qb.orderBy('product.price', 'DESC').addOrderBy('product.id', 'DESC');
+        break;
+      default:
+        qb.orderBy('product.createdAt', 'DESC').addOrderBy(
+          'product.id',
+          'DESC',
+        );
+    }
+  }
+
+  private applyCursor(
+    qb: SelectQueryBuilder<Product>,
+    sort: CatalogSort,
+    cursor: Cursor,
+  ): void {
+    // Postgres row-value comparison walks the composite key cleanly.
+    switch (sort) {
+      case CatalogSort.PRICE_ASC:
+        qb.andWhere('(product.price, product.id) > (:price, :cursorId)', {
+          price: cursor.price,
+          cursorId: cursor.id,
+        });
+        break;
+      case CatalogSort.PRICE_DESC:
+        qb.andWhere('(product.price, product.id) < (:price, :cursorId)', {
+          price: cursor.price,
+          cursorId: cursor.id,
+        });
+        break;
+      default:
+        qb.andWhere(
+          '(product.createdAt, product.id) < (:createdAt, :cursorId)',
+          { createdAt: cursor.createdAt, cursorId: cursor.id },
+        );
+    }
+  }
+
   private encodeCursor(product: Product): string {
     const payload: Cursor = {
       createdAt: product.createdAt.toISOString(),
+      price: product.price,
       id: product.id,
     };
     return Buffer.from(JSON.stringify(payload)).toString('base64url');
@@ -267,9 +382,10 @@ export class ProductsService {
       return null;
     }
     try {
-      const decoded = Buffer.from(raw, 'base64url').toString('utf8');
-      const parsed = JSON.parse(decoded) as Cursor;
-      if (!parsed.createdAt || !parsed.id) {
+      const parsed = JSON.parse(
+        Buffer.from(raw, 'base64url').toString('utf8'),
+      ) as Cursor;
+      if (!parsed.id) {
         return null;
       }
       return parsed;
