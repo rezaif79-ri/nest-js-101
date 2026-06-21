@@ -96,7 +96,7 @@ export class ProductsService {
     });
 
     const result: PaginatedResult<ProductListItemView> = {
-      items: page.items.map((p) => this.serializeListItem(p)),
+      items: await Promise.all(page.items.map((p) => this.serializeListItem(p))),
       nextCursor: page.nextCursor,
     };
     await this.cache.set(key, result);
@@ -126,7 +126,7 @@ export class ProductsService {
     if (!product) {
       throw new NotFoundException(`Product ${slug} not found.`);
     }
-    const view = this.serialize(product);
+    const view = await this.serialize(product);
     await this.cache.set(this.cache.productKey(product.id), view);
     return view;
   }
@@ -150,27 +150,29 @@ export class ProductsService {
     return this.serialize(product);
   }
 
-  /** Sorted, URL-resolved images from a raw image list. */
-  private resolveImages(images: Product['images']): ProductImageView[] {
-    return (images ?? [])
-      .slice()
-      .sort((a, b) => a.position - b.position)
-      .map((image) => ({
+  /** Sorted, presigned-URL-resolved images from a raw image list. */
+  private async resolveImages(
+    images: Product['images'],
+  ): Promise<ProductImageView[]> {
+    const sorted = (images ?? []).slice().sort((a, b) => a.position - b.position);
+    return Promise.all(
+      sorted.map(async (image) => ({
         ...image,
-        url: this.storage.publicUrl(image.objectKey),
-      }));
+        url: await this.storage.presignDownload(image.objectKey),
+      })),
+    );
   }
 
   /** Full detail view (gallery + primary image). */
-  private serialize(product: Product): ProductView {
-    const images = this.resolveImages(product.images);
+  private async serialize(product: Product): Promise<ProductView> {
+    const images = await this.resolveImages(product.images);
     return { ...product, images, primaryImage: images[0] ?? null };
   }
 
   /** Card view: drops the gallery, keeps just the primary image. */
-  private serializeListItem(product: Product): ProductListItemView {
+  private async serializeListItem(product: Product): Promise<ProductListItemView> {
     const { images, ...rest } = product;
-    const resolved = this.resolveImages(images);
+    const resolved = await this.resolveImages(images);
     return { ...rest, primaryImage: resolved[0] ?? null };
   }
 

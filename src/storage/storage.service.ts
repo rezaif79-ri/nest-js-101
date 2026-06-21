@@ -1,5 +1,6 @@
 import {
   DeleteObjectCommand,
+  GetObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -55,6 +56,26 @@ export class StorageService {
       Bucket: this.bucket,
       Key: objectKey,
       ContentType: contentType,
+    });
+    return getSignedUrl(this.client, command, { expiresIn: expiresInSeconds });
+  }
+
+  /**
+   * Presigned GET URL for a direct browser-to-bucket download/view. Absolute
+   * URLs (e.g. seeded placeholder imagery) are returned verbatim. The default
+   * TTL (3600 s) is chosen to outlive the catalog cache so cached responses
+   * never serve expired links.
+   */
+  presignDownload(
+    objectKey: string,
+    expiresInSeconds = 3600,
+  ): Promise<string> {
+    if (/^https?:\/\//i.test(objectKey)) {
+      return Promise.resolve(objectKey);
+    }
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: objectKey,
     });
     return getSignedUrl(this.client, command, { expiresIn: expiresInSeconds });
   }

@@ -98,7 +98,7 @@ export class ProductImagesService {
       where: { productId },
       order: { position: 'ASC' },
     });
-    return images.map((image) => this.toView(image));
+    return Promise.all(images.map((image) => this.toView(image)));
   }
 
   /** Remove an image row and best-effort delete the underlying object. */
@@ -132,7 +132,8 @@ export class ProductImagesService {
     return product;
   }
 
-  private toView(image: ProductImage): ProductImageView {
-    return { ...image, url: this.storage.publicUrl(image.objectKey) };
+  private async toView(image: ProductImage): Promise<ProductImageView> {
+    const url = await this.storage.presignDownload(image.objectKey);
+    return { ...image, url };
   }
 }
